@@ -1,89 +1,170 @@
-# ssis:bit v0.1
-# program menu selector in code.py
+import board
+import busio
+import time
+import struct
 
-# 2022/01/07
+class LEDs:
+    RIGHT_HEADLIGHT = [0x00, 0x00, 0x00, 0x07]
+    LEFT_HEADLIGHT = [0x00, 0x00, 0x00, 0x38]
+    LEFT_STATUS = [0x00, 0x00, 0x01, 0xC0]
+    RIGHT_STATUS = [0x00, 0x00, 0x0E, 0x00]
+    BATTERY_DOOR_FRONT = [0x00, 0x03, 0x80, 0x00]
+    BATTERY_DOOR_REAR = [0x00, 0x00, 0x70, 0x00]
+    POWER_BUTTON_FRONT = [0x00, 0x1C, 0x00, 0x00]
+    POWER_BUTTON_REAR = [0x00, 0xE0, 0x00, 0x00]
+    LEFT_BRAKELIGHT = [0x07, 0x00, 0x00, 0x00]
+    RIGHT_BRAKELIGHT = [0x38, 0x00, 0x00, 0x00]
 
-import time, os, sys
-import board, displayio, terminalio, digitalio
-from adafruit_debouncer import Debouncer
-from adafruit_display_text import label
+class RawMotorModes:
+    OFF = 0
+    FORWARD = 1
+    BACKWARD = 2
 
-color_menu   = 0xFFFFFF
-color_select = 0x00FF55
-long_press   = 0.8          # time in seconds for long press to start program
+uart = busio.UART(board.D2, board.D3, baudrate=115200)
 
-#pin = digitalio.DigitalInOut(board.IO0)    # boot switch - choose and select
-#pin.direction = digitalio.Direction.INPUT
-#pin.pull = digitalio.Pull.UP
+class RVRDrive:
 
-switch = Debouncer(pin, interval=0.05)
+    def __init__(self,uart = uart):
+        self._uart = uart
 
-programs = os.listdir('apps')              # folder for programs
-programs.sort()
-number_programs = len(programs)            # number of installed programs
 
-display = board.DISPLAY
+    def drive(self,speed, heading):
 
-menu = []                                  # first menu item:
-menu.append("Menu/Settings   [{} programs]".format(number_programs))
-menu.append("REPL")                        # second menu item
+        flags = 0x00
+        speed = int(speed)
+        if speed < 0:
+            speed *= -1
+            heading += 180
+            heading %= 360
+            flags = 0x01
 
-for x in programs:
-    menu.append(x[:-3])                    # remove the .py from program files
+        drive_data = [
+            0x8D, 0x3E, 0x12, 0x01, 0x16, 0x07, 0x00,
+            speed, heading >> 8, heading & 0xFF, flags
+        ]
 
-#font = bitmap_font.load_font("fonts/Helvetica-Bold-16.bdf")
-#font = bitmap_font.load_font("fonts/SourceSerifPro-15.bdf")
-#font = bitmap_font.load_font("fonts/SourceSansPro-15.pcf")
+        drive_data.extend([~((sum(drive_data) - 0x8D) % 256) & 0x00FF, 0xD8])
 
-mainmenu = displayio.Group()
-select = 0
+        self.uart.write(bytearray(drive_data))
 
-def menu_create():
-  for item in range(9):
-    listitem = label.Label(terminalio.FONT, text="tbd", color=color_menu)
-    listitem.x = 10
-    listitem.y = 7 + 15 * item
-    mainmenu.append(listitem)
+        return
 
-def menu_fill(s):
-  for item in range(9):
-    mainmenu[item].text = menu[item + s]
+    @staticmethod
+    def stop(heading):
+        RVRDrive.drive(0, heading)
 
-def menu_select(x):
-  mainmenu[x].color = color_select
-  if (x == 0):
-    x = 8
-  else:
-    x -= 1
-  mainmenu[x].color = color_menu
-  
-# setup
-menu_create()
-menu_fill(0)
-menu_select(0)
-display.show(mainmenu)
+        return
 
-while True:
-  switch.update()
-  if switch.fell:    # button pressed
-    pressed = time.monotonic()
-  if switch.rose:    # button released
-    time_pressed = time.monotonic() - pressed
-    if time_pressed > long_press:               # start this program
-      if select < 2:
-        sys.exit()
-      program = "apps/" + programs[select - 2]
-      pin.deinit()
-      # displayio.release_displays() # return to REPL output - tbd
 
-      exec(open(program).read())
-    select += 1
-    if (select > number_programs + 1):
-      select = 0
-      menu_fill(0)
-    if (select > 8):
-      menu_fill(select - 8)
-    else:
-      menu_select(select)
+    def set_raw_motors(self,left_mode, left_speed, right_mode, right_speed):
+        if left_mode < 0 or left_mode > 2:
+            left_mode = 0
 
-#exec(open("apps/bouncy_balls1.py").read())
+        if right_mode < 0 or right_mode > 2:
+            right_mode = 0
+
+        raw_motor_data = [
+            0x8D, 0x3E, 0x12, 0x01, 0x16, 0x01, 0x00,
+            left_mode, left_speed, right_mode, right_speed
+        ]
+
+        raw_motor_data.extend([~((sum(raw_motor_data) - 0x8D) % 256) & 0x00FF, 0xD8])
+
+        self._uart.write(bytearray(raw_motor_data))
+
+        return
+
+    def setMotors(self,left,right):
+        # First set the direction of each motor based on its value
+        rightMode = RawMotorModes.FORWARD if (right >= 0) else RawMotorModes.BACKWARD
+        leftMode = RawMotorModes.FORWARD if (left >= 0) else RawMotorModes.BACKWARD
+        
+        # Second convert to integers if not already
+        right = int(right)
+        left = int(left)
+        # Third make sure motor powers are within bounds
+        if(left > 255):
+            left = 255
+        if(left < -255):
+            left = -255
+        if(right > 255):
+            right = 255
+        if(right < -255):
+            right = -255
+
+        # Third adjust the speed value to always be positive
+        if(left < 0):
+            left = -left
+        if(right < 0):
+            right = - right
+
+        # Call raw motor function
+        self.set_raw_motors(leftMode,left,rightMode,right)
+
+    def float_to_hex(self,f):
+        #return hex(struct.unpack('<I', struct.pack('<f', f))[0])
+        result = bytearray(struct.pack('>f', f))
+
+        return result
+
+    def drive_to_position_si(self,yaw_angle, x, y, speed):
+        SOP = 0x8d
+        FLAGS = 0x06
+        TARGET_ID = 0x0e
+        SOURCE_ID = 0x0b
+        DEVICE_ID = 0x16
+        COMMAND_ID = 0x38
+        SEQ = 0x01
+        EOP = 0xD8
+
+        yaw_angle = bytearray(struct.pack('>f', yaw_angle))
+        x = bytearray(struct.pack('>f', x))
+        y = bytearray(struct.pack('>f', y))
+        speed = bytearray(struct.pack('>f', speed))
+        flags = bytearray(struct.pack('B', 0))
+
+        output_packet = [SOP, FLAGS, DEVICE_ID,COMMAND_ID,SEQ]
+        output_packet.extend(yaw_angle)
+        output_packet.extend(x)
+        output_packet.extend(y)
+        output_packet.extend(speed)
+        output_packet.extend(flags)
+        output_packet.extend([~((sum(output_packet) - SOP) % 256) & 0x00FF,EOP])
+
+        #print(bytearray(output_packet))
+        uart.write(bytearray(output_packet))
+        return bytearray(output_packet)
+
+
+    def reset_yaw(self):
+        drive_data = [0x8D, 0x3E, 0x12, 0x01, 0x16, 0x06, 0x00]
+
+        drive_data.extend([~((sum(drive_data) - 0x8D) % 256) & 0x00FF, 0xD8])
+
+        self._uart.write(bytearray(drive_data))
+
+        return
+
+
+    def set_all_leds(self, red, green, blue):
+        led_data = [
+            0x8D, 0x3E, 0x11, 0x01, 0x1A, 0x1A, 0x00,
+            0x3F, 0xFF, 0xFF, 0xFF
+        ]
+        for _ in range (10):
+            led_data.extend([red, green, blue])
+        led_data.extend([~((sum(led_data) - 0x8D) % 256) & 0x00FF, 0xD8])
+        self._uart.write(bytearray(led_data))
+        return
+
+    def wake(self):
+        power_data = [0x8D, 0x3E, 0x11, 0x01, 0x13, 0x0D, 0x00]
+        power_data.extend([~((sum(power_data) - 0x8D) % 256) & 0x00FF, 0xD8])
+        self._uart.write(bytearray(power_data))
+        return
+
+    def sleep(self):
+        power_data = [0x8D, 0x3E, 0x11, 0x01, 0x13, 0x01, 0x00]
+        power_data.extend([~((sum(power_data) - 0x8D) % 256) & 0x00FF, 0xD8])
+        self._uart.write(bytearray(power_data))
+        return
