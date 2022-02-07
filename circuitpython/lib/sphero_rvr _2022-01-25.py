@@ -145,37 +145,6 @@ class RVRDrive:
 
         return
 
-    def set_streaming(self):
-        
-        SOP = 0x8d
-        FLAGS = 0x06
-        TARGET_ID = 0x02
-        SOURCE_ID = 0x0b
-        DEVICE_ID = 0x18
-        COMMAND_ID = 0x39
-        SEQ = 0x01
-        EOP = 0xD8
-        
-        output_packet = [SOP, FLAGS, DEVICE_ID,COMMAND_ID,SEQ]
-        output_packet.extend([0x03, 0x00, 0x0A, 0x02, 0x00, 0x03, 0x01])
-    
-        output_packet.extend([~((sum(output_packet) - SOP) % 256) & 0x00FF,EOP])
-
-    def start_streaming(self):
-    
-        SOP = 0x8d
-        FLAGS = 0x06
-        TARGET_ID = 0x02
-        SOURCE_ID = 0x0b
-        DEVICE_ID = 0x18
-        COMMAND_ID = 0x3A
-        SEQ = 0x01
-        EOP = 0xD8
-        
-        output_packet = [SOP, FLAGS, DEVICE_ID,COMMAND_ID,SEQ]
-        output_packet.extend([0x03, 0x00, 0x0A, 0x02, 0x00, 0x03, 0x01])
-    
-        output_packet.extend([~((sum(output_packet) - SOP) % 256) & 0x00FF,EOP])
 
     def set_all_leds(self, red, green, blue):
         led_data = [
