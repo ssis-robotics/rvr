@@ -27,8 +27,9 @@ import digitalio
 
 # UART on STM32F411 blackpill TX RX
 # Serial1 A9  A10 is USB
-# Serial2 B6  B7  is I2C
+# Serial2 B6  B7  is I2C    SCL SDA
 # Serial3 A15 B3  for RVR
+# or TX2 RX2 on A2 A3
 
 led = digitalio.DigitalInOut(board.C13)
 led.direction = digitalio.Direction.OUTPUT
