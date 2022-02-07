@@ -21,6 +21,7 @@ class RawMotorModes:
     BACKWARD = 2
 
 uart = busio.UART(board.D2, board.D3, baudrate=115200)
+
 class RVRDrive:
 
     def __init__(self,uart = uart):
